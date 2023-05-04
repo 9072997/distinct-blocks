@@ -20,34 +20,36 @@ func hash(b []byte) [16]byte {
 	return r
 }
 
-func distinct(r io.Reader, blockSize int) (distinct, total, zero int, err error) {
+func distinct(readers []io.Reader, blockSize int) (distinct, total, zero int, err error) {
 	blocks := make(map[[16]byte]struct{})
 	buf := make([]byte, blockSize)
 	zeroHash := hash(make([]byte, blockSize))
 
-	for {
-		n, err := io.ReadFull(r, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return 0, 0, 0, err
-		}
-		if n == 0 {
-			break
-		}
-		total++
-		hash := hash(buf[:n])
-		blocks[hash] = struct{}{}
-		if hash == zeroHash {
-			zero++
-		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
+	for _, r := range readers {
+		for {
+			n, err := io.ReadFull(r, buf)
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				return 0, 0, 0, err
+			}
+			if n == 0 {
+				break
+			}
+			total++
+			hash := hash(buf[:n])
+			blocks[hash] = struct{}{}
+			if hash == zeroHash {
+				zero++
+			}
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
 		}
 	}
 
 	return len(blocks), total, zero, nil
 }
 
-func drawFunc() ioprogress.DrawFunc {
+func drawFunc(label string) ioprogress.DrawFunc {
 	var timeMeasurements [10]time.Time
 	var progressMeasurements [10]int64
 	var idx int
@@ -74,7 +76,8 @@ func drawFunc() ioprogress.DrawFunc {
 
 			bar := ioprogress.DrawTextFormatBar(20)
 			return fmt.Sprintf(
-				"%s %s (%s)",
+				"%s: %s %s (%s)",
+				label,
 				bar(progress, total),
 				ioprogress.DrawTextFormatBytes(progress, total),
 				remainingStr,
@@ -154,34 +157,28 @@ func main() {
 		showHelp()
 	}
 
-	var files io.Reader
-	var size int64
+	var files []io.Reader
 	for _, arg := range os.Args[2:] {
 		file, err := os.Open(arg)
 		if err != nil {
 			panic(err)
 		}
 		defer file.Close()
-		if files == nil {
-			files = file
-		} else {
-			files = io.MultiReader(files, file)
-		}
+
+		// progress bars
 		info, err := file.Stat()
 		if err != nil {
 			panic(err)
 		}
-		size += info.Size()
+		progressReader := &ioprogress.Reader{
+			Reader:   file,
+			Size:     info.Size(),
+			DrawFunc: drawFunc(info.Name()),
+		}
+		files = append(files, progressReader)
 	}
 
-	// progress bars
-	progressReader := &ioprogress.Reader{
-		Reader:   files,
-		Size:     size,
-		DrawFunc: drawFunc(),
-	}
-
-	distinct, total, zero, err := distinct(progressReader, blockSize)
+	distinct, total, zero, err := distinct(files, blockSize)
 	if err != nil {
 		panic(err)
 	}
