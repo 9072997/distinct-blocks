@@ -193,7 +193,7 @@ func main() {
 	nonZeroData := nonZero * blockSize
 	fmt.Printf(
 		"non-zero blocks: %d, %s\n",
-		zero,
+		nonZero,
 		humanizeSize(nonZeroData),
 	)
 	fmt.Printf(
